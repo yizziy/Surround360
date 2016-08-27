@@ -123,7 +123,7 @@ def parse_args():
   parser = parse_type(description=TITLE, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument('--data_dir',                   metavar='Data Directory', help='directory containing .bin files', required=True, **dir_chooser)
   parser.add_argument('--dest_dir',                   metavar='Destination Directory', help='destination directory', required=True, **({"widget": "DirChooser"} if USE_GOOEY else {}))
-  parser.add_argument('--quality',                    metavar='Quality', help='final output quality', required=False, choices=['preview', '3k', '4k', '6k', '8k'], default='6k')
+  parser.add_argument('--quality',                    metavar='Quality', help='final output quality', required=False, choices=['3k', '4k', '6k', '8k'], default='6k')
   parser.add_argument('--start_frame',                metavar='Start Frame', help='start frame', required=False, default='0')
   parser.add_argument('--frame_count',                metavar='Frame Count', help='0 = all', required=False, default='0')
   parser.add_argument('--cubemap_face_resolution',    metavar='Cubemap Face Resolution', help='0 = no cubemaps', required=False, default='0')
@@ -196,12 +196,12 @@ def duplicate_isp_files(config_isp_path):
     cmosis_path = cmosis_fujinon_path if i in [0, 15, 16] else cmosis_sunex_path
     os.system("cp " + cmosis_path + " " + config_isp_path + "/isp" + str(i) + ".json")
 
-def update_isp_mappings(cam_to_isp_config_file):
+def update_isp_mappings(cam_to_isp_config_file, config_isp_path):
   with open(cam_to_isp_config_file, "r") as json_file:
     cam_json_map = json.load(json_file)
 
   for i in range(0, NUM_CAMS):
-    cam_json_map["cam" + str(i)] = "isp" + str(i) + ".json"
+    cam_json_map["cam" + str(i)] = config_isp_path + "/isp" + str(i) + ".json"
 
   with open(cam_to_isp_config_file, "w") as json_file:
     json.dump(cam_json_map, json_file, indent=4, sort_keys=True)
@@ -245,7 +245,10 @@ if __name__ == "__main__":
   disk_count = len(binary_files)
 
   step_list_all = ["unpack", "arrange", "isp", "rectify", "render", "ffmpeg"]
-  step_list = steps.split(',')
+  if steps == "all":
+    step_list = step_list_all
+  else:
+    step_list = steps.split(',')
 
   # We want to be able to map a file path to its flag/variable name, so we keep
   # a dictionary of mappings between them
@@ -257,15 +260,12 @@ if __name__ == "__main__":
         sys.stderr.write("Given --" + name + " (" + path + ") does not exist\n")
         exit(1)
 
-  if "all" in step_list:
-    step_list = step_list_all
-
   for step in step_list:
     if step not in step_list_all:
       sys.stderr.write("Unrecognized step: " + step)
       exit(1)
 
-  if quality not in ["preview", "3k", "4k", "6k", "8k"]:
+  if quality not in ["3k", "4k", "6k", "8k"]:
     sys.stderr.write("Unrecognized quality setting: " + quality)
     exit(1)
 
@@ -336,15 +336,12 @@ if __name__ == "__main__":
     print "WARNING: Color adjustment files not found. Using default files.\n"
     sys.stdout.flush()
     duplicate_isp_files(config_isp_path)
-    update_isp_mappings(cam_to_isp_config_file)
+    update_isp_mappings(cam_to_isp_config_file, config_isp_path)
 
   ### isp step ###
 
   step = "isp"
   isp_extra_params = ""
-
-  if quality == "preview":
-    isp_extra_params += " --preview_mode"
 
   if verbose:
     isp_extra_params += " --verbose"
@@ -396,16 +393,16 @@ if __name__ == "__main__":
   step = "render"
   render_extra_params = ""
 
-  if enable_top and quality != "preview":
+  if enable_top:
     render_extra_params += " --enable_top"
 
-  if enable_bottom and quality != "preview":
+  if enable_bottom:
     render_extra_params += " --enable_bottom"
 
     if enable_pole_removal:
       render_extra_params += " --enable_pole_removal"
 
-  if enable_render_coloradjust and quality != "preview":
+  if enable_render_coloradjust:
     render_extra_params += " --enable_render_coloradjust"
 
   if save_debug_images:
@@ -440,7 +437,9 @@ if __name__ == "__main__":
   if not verbose:
     ffmpeg_extra_params += " -loglevel error -stats"
 
-  mp4_path = dest_dir + "/" + str(int(timer())) + "_" + quality + "_TB.mp4"
+  # Sequence name is the directory containing raw data
+  sequence_name = binary_prefix.rsplit('/', 2)[-2]
+  mp4_path = dest_dir + "/" + sequence_name + "_" + str(int(timer())) + "_" + quality + "_TB.mp4"
 
   ffmpeg_params = {
     "START_NUMBER": str(start_frame).zfill(FRAME_NUM_DIGITS),
